@@ -1,37 +1,66 @@
 # Flipper SubGHz API
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-A lightweight FastAPI backend for controlling Flipper Zero SubGHz transmissions. List and execute `.sub` files on a connected Flipper device via HTTP API.
+Lightweight FastAPI backend for controlling Flipper Zero SubGHz transmissions over USB. List and execute `.sub` files on a connected Flipper device via HTTP API.
 
 ## Features
 
-- **List Scripts** — Discover all `.sub` files in `/ext/subghz` on your Flipper device
-- **Run Transmissions** — Execute SubGHz scripts with configurable repeat count and RF device index
-- **Automatic Retry** — Falls back to non-recursive listing if initial scan fails
-- **Interactive Docs** — Auto-generated Swagger UI at `/docs`
-- **Structured Logging** — Built-in loguru integration for debugging
+- **List Scripts** -- discover all `.sub` files in `/ext/subghz` on Flipper device
+- **Run Transmissions** -- execute SubGHz scripts with configurable repeat count and RF device index
+- **Automatic Retry** -- falls back to non-recursive listing if initial scan fails
+- **Interactive Docs** -- auto-generated Swagger UI at `/docs`
+- **Local Script Runner** -- execute `.py`/`.sh`/`.sub` scripts from local directory
+- **Path Traversal Protection** -- safe file path resolution prevents directory escape
+- **Structured Logging** -- loguru integration with configurable log levels
+
+## Architecture
+
+```
+Flipper/
+├── app/
+│   ├── main.py                 # FastAPI app, root redirect, logging setup
+│   ├── core/
+│   │   └── config.py           # pydantic-settings configuration
+│   ├── api/routes/
+│   │   ├── subghz.py           # SubGHz device endpoints
+│   │   └── health.py           # Health check endpoint
+│   ├── services/
+│   │   ├── flipper_service.py  # Flipper device interaction (USB serial)
+│   │   └── subghz_service.py   # Local script listing and execution
+│   └── schemas/
+│       └── subghz.py           # Pydantic request/response models
+├── flipper_cli.py              # Low-level Flipper serial protocol (pyserial)
+├── Makefile                    # Dev/prod server management
+└── requirements.txt            # Python dependencies
+```
 
 ## Quick Start
 
 ### Prerequisites
 
-Ensure your Flipper Zero is connected and accessible via USB.
+- Python 3.10+
+- Flipper Zero connected via USB
+- Linux (serial port detection via `/dev/serial/by-id/`)
 
 ### Installation
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+git clone https://github.com/mazamaka/Flipper.git
+cd Flipper
+make install
 ```
 
 ### Run Server
 
 ```bash
-uvicorn app.main:app --reload
+# Development (with auto-reload)
+make up
+
+# Production
+make up-prod
 ```
 
 Server starts at `http://127.0.0.1:8000`. Open `/docs` for interactive API explorer.
@@ -40,8 +69,9 @@ Server starts at `http://127.0.0.1:8000`. Open `/docs` for interactive API explo
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/subghz/scripts` | List all `.sub` files on device |
+| `GET` | `/subghz/scripts` | List all `.sub` files on Flipper device |
 | `POST` | `/subghz/scripts/{name}/run` | Execute a script by name |
+| `GET` | `/health` | Health check |
 
 ### List Scripts
 
@@ -49,7 +79,6 @@ Server starts at `http://127.0.0.1:8000`. Open `/docs` for interactive API explo
 curl http://localhost:8000/subghz/scripts
 ```
 
-Response:
 ```json
 {
   "items": [
@@ -66,64 +95,54 @@ Response:
 curl -X POST "http://localhost:8000/subghz/scripts/Win_stop/run?repeat=2&device=0"
 ```
 
-**Query Parameters:**
-- `repeat` — Number of transmission repeats (1-100, default: 1)
-- `device` — RF device index (0-3, default: 0)
-
-**Response:**
-```json
-{"result": "OK"}
-```
+| Parameter | Type | Range | Default | Description |
+|-----------|------|-------|---------|-------------|
+| `repeat` | int | 1-100 | 1 | Number of transmission repeats |
+| `device` | int | 0-3 | 0 | RF device index |
 
 ## Configuration
 
-Set environment variables in `.env` file:
+Create `.env` file in project root:
 
 ```env
 LOG_LEVEL=INFO
 SUBGHZ_RECURSIVE=False
+SUBGHZ_ALLOWED_EXTS=.py,.sh,.sub
 SCRIPT_TIMEOUT_SEC=60
 ```
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `LOG_LEVEL` | str | INFO | Logging level (DEBUG, INFO, WARNING, ERROR) |
-| `SUBGHZ_RECURSIVE` | bool | False | Recursive directory search |
-| `SCRIPT_TIMEOUT_SEC` | int | 60 | Script execution timeout |
+| `LOG_LEVEL` | str | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
+| `SUBGHZ_RECURSIVE` | bool | `False` | Recursive directory search for scripts |
+| `SUBGHZ_ALLOWED_EXTS` | str | `.py,.sh` | Comma-separated allowed script extensions |
+| `SCRIPT_TIMEOUT_SEC` | int | `60` | Script execution timeout in seconds |
 
-## Project Structure
+## Makefile Targets
 
+```bash
+make help      # Show available targets
+make install   # Create venv and install dependencies
+make up        # Start dev server with auto-reload
+make up-prod   # Start production server (0.0.0.0:8000)
+make down      # Stop server
+make clean     # Remove __pycache__ directories
 ```
-app/
-├── main.py                      # FastAPI app initialization
-├── core/
-│   └── config.py               # Settings & configuration
-├── api/
-│   └── routes/
-│       └── subghz.py           # SubGHz endpoints
-├── services/
-│   └── flipper_service.py      # Device interaction logic
-└── schemas/
-    └── subghz.py               # Pydantic models
-```
-
-## Requirements
-
-- Python 3.10+
-- FastAPI 0.100+
-- Uvicorn
-- Pydantic
-- pyserial (for USB communication)
-- loguru (structured logging)
-
-See `requirements.txt` for full list.
 
 ## Notes
 
-- Script names in responses omit the `.sub` extension for convenience
+- Script names in API responses omit the `.sub` extension
 - File matching is case-insensitive
 - Device paths are absolute (e.g., `/ext/subghz/Win_stop.sub`)
-- Requires `flipper_cli` module in Python path for device communication
+- Requires `flipper_cli.py` module for USB serial communication
+- Serial connection uses 230400 baud with exclusive port access
+- Automatically frees port if occupied by qFlipper or other processes
+
+## Author
+
+**Maksym Babenko**
+- GitHub: [@mazamaka](https://github.com/mazamaka)
+- Telegram: [@Mazamaka](https://t.me/Mazamaka)
 
 ## License
 
